@@ -1,0 +1,20 @@
+{
+  "Builder": {
+    "subject_templates": [
+      "Speed up your construction projects with drone insights - Free demo at DCW",
+      "See how {company_name} can reduce project delays with aerial data",
+      "Transform your site management with real-time aerial insights",
+      "Cut project costs with automated progress tracking - Booth #42 demo"
+    ],
+    "body_template": "Hi {speaker_name},\n\nI noticed you're attending Digital Construction Week as {speaker_title} at {company_name}. As someone responsible for construction operations, you know how critical accurate project tracking and site visibility are for staying on schedule and budget.\n\nDroneDeploy helps construction teams like yours reduce project delays by up to 30% through automated aerial mapping and progress tracking. We'd love to show you how companies similar to {company_name} are using our platform to:\n\n• Get real-time project progress updates without site visits\n• Identify issues before they become costly delays\n• Generate accurate volumetric measurements and cut/fill reports\n• Share visual progress reports with stakeholders instantly\n\nWe're at Booth #42 with live demos and some great swag. Plus, we're offering free project assessments to attendees.\n\nWould you have 15 minutes to see how this could work for your projects? Just stop by when it's convenient.\n\nBest regards,\n[Your name]\nDroneDeploy"
+  },
+  "Owner": {
+    "subject_templates": [
+      "Get better visibility into your construction investments - DCW Booth #42",
+      "How {company_name} can gain real-time project oversight with drones",
+      "Reduce construction risks with automated site monitoring",
+      "See your projects progress from anywhere - Free demo available"
+    ],
+    "body_template": "Hi {speaker_name},\n\nI saw you're attending Digital Construction Week as {speaker_title} at {company_name}. As someone overseeing construction investments, you understand the importance of having clear visibility into project progress and potential issues.\n\nDroneDeploy provides automated aerial monitoring that gives property owners and developers like {company_name} unprecedented insight into their projects. Our platform helps you:\n\n• Monitor multiple project sites remotely with regular automated flights\n• Get objective progress reports independent of contractor updates\n• Identify potential delays or issues before they impact timelines\n• Document project milestones with high-resolution imagery and data\n• Share progress with investors, lenders, and stakeholders easily\n\nMany developers tell us our platform has transformed how they manage their construction investments and communicate with their teams.\n\nWe're demonstrating the platform at Booth #42 and offering free project evaluations to conference attendees. It would be great to show you how this could provide better oversight for {company_name}'s projects.\n\nHope to see you there!\n\nBest regards,\n[Your name]\nDroneDeploy"
+  }
+}
