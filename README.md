@@ -38,21 +38,6 @@ cp .env_sample .env
 # Edit .env file with your API keys
 ```
 
-## Configuration
-
-Copy `.env_sample` to `.env` and configure your API settings:
-
-```env
-# LLM Provider API Keys (choose one)
-OPENAI_API_KEY=your_openai_key_here
-GOOGLE_API_KEY=your_google_key_here
-ANTHROPIC_API_KEY=your_anthropic_key_here
-
-# LLM Configuration
-LLM_MODEL=gpt-3.5-turbo
-LLM_PROVIDER=openai
-```
-
 ## Usage
 
 Run the complete pipeline:
@@ -64,30 +49,9 @@ python main.py
 This will:
 1. Scrape speaker data from the Digital Construction Week website
 2. Save raw data to `out/raw_speakers.json`
-3. Process speakers through LLM for company classification
+3. Process speakers through LLM for company classification and save processed classfications to `speakers_with_categories.json`
 4. Generate personalized emails for Builder/Owner categories
 5. Export final results to `out/email_list.csv`
-
-## Project Structure
-
-```
-dd_gtm_ai_eng_exercise/
-├── .env_sample              # Sample environment configuration
-├── main.py                  # Main pipeline orchestration
-├── README.md                # This file
-├── requirements.txt         # Python dependencies
-├── in/                      # Input templates and prompts
-│   ├── prompt_template.txt  # LLM classification prompt
-│   ├── email_templates.json # Email subject/body templates
-│   └── example_speaker.json # Example speaker data format
-├── out/                     # Output directory
-│   ├── raw_speakers.json    # Scraped speaker data
-│   └── email_list.csv       # Final email list (generated)
-└── utils/                   # Utility modules
-    ├── scraper.py           # Web scraping functionality
-    ├── llm_processor.py     # LLM classification and email generation
-    └── csv_exporter.py      # CSV file generation
-```
 
 ## Output Format
 

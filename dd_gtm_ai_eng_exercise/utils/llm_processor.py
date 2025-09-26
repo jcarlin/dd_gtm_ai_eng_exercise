@@ -195,6 +195,11 @@ class LLMProcessor:
             speaker["email_subject"] = subject
             speaker["email_body"] = body
 
+        # Log category counts
+        from collections import Counter
+        counts = Counter(speaker["category"] for speaker in speakers)
+        print(f"Category counts: {dict(counts)}")
+
         return speakers
 
     async def process_speakers_from_file(self, raw_speakers_file: str) -> List[Dict]:
@@ -215,5 +220,11 @@ class LLMProcessor:
 
         # Process the speakers using existing batch method
         processed_speakers = await self.process_speakers_batch(speakers)
+
+        # Save processed data to new file
+        output_file = raw_speakers_file.replace('raw_speakers.json', 'speakers_with_categories.json')
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(processed_speakers, f, indent=2, ensure_ascii=False)
+        print(f"💾 Saved processed speakers to {output_file}")
 
         return processed_speakers

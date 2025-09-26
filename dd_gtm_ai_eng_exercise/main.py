@@ -3,18 +3,15 @@ DroneDeploy GTM AI Engineering Exercise
 Main pipeline for generating outbound emails to conference attendees.
 """
 import asyncio
-import csv
 import json
 import os
 from pathlib import Path
-from typing import List, Dict
 
 from dotenv import load_dotenv
 
 from utils.scraper import ConferenceScraper
 from utils.llm_processor import LLMProcessor
 from utils.csv_exporter import CSVExporter
-
 
 async def main():
     """Main pipeline execution."""

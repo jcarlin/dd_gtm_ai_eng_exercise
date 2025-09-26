@@ -5,7 +5,6 @@ import aiohttp
 from bs4 import BeautifulSoup
 from typing import List, Dict
 
-
 class ConferenceScraper:
     def __init__(self):
         self.speakers_url = "https://www.digitalconstructionweek.com/all-speakers/"
