@@ -54,4 +54,5 @@ agent-state/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 
-out/
+dd_gtm_ai_eng_exercise/out/*
+!dd_gtm_ai_eng_exercise/out/.gitkeep

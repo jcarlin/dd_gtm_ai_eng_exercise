@@ -8,13 +8,10 @@ from typing import List, Dict
 class ConferenceScraper:
     def __init__(self):
         self.speakers_url = "https://www.digitalconstructionweek.com/all-speakers/"
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        }
 
     async def scrape_speakers(self) -> List[Dict[str, str]]:
         """Scrape speaker information from the Digital Construction Week website."""
-        async with aiohttp.ClientSession(headers=self.headers) as session:
+        async with aiohttp.ClientSession() as session:
             try:
                 async with session.get(self.speakers_url) as response:
                     if response.status != 200:
