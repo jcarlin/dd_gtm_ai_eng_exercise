@@ -1,5 +1,6 @@
 """
 LLM processor for company classification and email generation.
+Reads from out/raw_speakers.json and processes speakers.
 """
 import os
 import json
@@ -195,3 +196,24 @@ class LLMProcessor:
             speaker["email_body"] = body
 
         return speakers
+
+    async def process_speakers_from_file(self, raw_speakers_file: str) -> List[Dict]:
+        """
+        Process speakers from raw_speakers.json file.
+
+        Args:
+            raw_speakers_file: Path to raw_speakers.json file
+
+        Returns:
+            List of processed speakers with classification and email data
+        """
+        # Load speakers from JSON file
+        with open(raw_speakers_file, 'r', encoding='utf-8') as f:
+            speakers = json.load(f)
+
+        print(f"📖 Loaded {len(speakers)} speakers from {raw_speakers_file}")
+
+        # Process the speakers using existing batch method
+        processed_speakers = await self.process_speakers_batch(speakers)
+
+        return processed_speakers
