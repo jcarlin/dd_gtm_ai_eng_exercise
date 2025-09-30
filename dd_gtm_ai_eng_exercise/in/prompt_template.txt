@@ -47,9 +47,9 @@ Company Size: [Small|Large|Unknown]
 Reasoning: [Brief explanation of the classification decision]
 
 COMPANY SIZE CLASSIFICATION:
-Use web search to determine the company's employee count:
-- Large: 500 or more employees
-- Small: Less than 500 employees
+Based on your knowledge, determine the company's employee count:
+- Large: 500 or more employees (major construction firms, multinational corporations)
+- Small: Less than 500 employees (startups, consultancies, small/medium enterprises)
 - Unknown: Cannot determine employee count
 
 IMPORTANT NOTES:
