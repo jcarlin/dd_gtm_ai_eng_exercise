@@ -110,8 +110,9 @@ dd_gtm_ai_eng_exercise/
 
 ---
 
-### Agent 2 (Builder) - NEXT
+### Agent 2 (Builder) - COMPLETED (Initial Implementation)
 **Role**: Core Implementation
+**Status**: ✅ COMPLETED
 **Primary Tasks**:
 1. **Environment Setup**
    - Create .env_sample file
@@ -143,17 +144,190 @@ dd_gtm_ai_eng_exercise/
 - **IDEMPOTENT**: Program must be able to run multiple times, overwriting contents in `out/` directory
 - **ENV VALIDATION**: Program must validate required .env values are present and error with appropriate message if undefined
 
-**Expected Deliverables**:
-- `main.py`: Complete pipeline orchestration
-- `utils/scraper.py`: Web scraping, outputs to `out/raw_speakers.json`
-- `utils/llm_processor.py`: Reads `out/raw_speakers.json`, does LLM classification and email generation
-- `utils/csv_exporter.py`: Generates final `out/email_list.csv` from processed data
-- `in/prompt_template.txt`: LLM classification prompt
-- `in/email_templates.json`: Email templates for Builder/Owner
-- `in/example_speaker.json`: Example showing correct name/title/company parsing
-- `.env_sample`: API key variables (NO hardcoded values in code!)
-- `out/raw_speakers.json`: Scraped speaker data in JSON format
-- `out/email_list.csv`: Final output with all required columns
+**Expected Deliverables**: ✅ ALL COMPLETED
+- ✅ `main.py`: Complete pipeline orchestration
+- ✅ `utils/scraper.py`: Web scraping, outputs to `out/raw_speakers.json`
+- ✅ `utils/llm_processor.py`: Reads `out/raw_speakers.json`, does LLM classification and email generation
+- ✅ `utils/csv_exporter.py`: Generates final `out/email_list.csv` from processed data
+- ✅ `in/prompt_template.txt`: LLM classification prompt
+- ✅ `in/email_templates.json`: Email templates for Builder/Owner
+- ✅ `in/example_speaker.json`: Example showing correct name/title/company parsing
+- ✅ `.env_sample`: API key variables (NO hardcoded values in code!)
+- ✅ `out/raw_speakers.json`: Scraped speaker data in JSON format
+- ✅ `out/email_list.csv`: Final output with all required columns
+
+---
+
+### Agent 2 (Builder) - PRODUCTION-READY IMPROVEMENTS
+**NEW TASK**: Upgrade LLM Communication for Production Readiness
+
+**Objective**: Add Pydantic validation and tenacity retry logic to make the system more robust and production-ready while maintaining compatibility with `gpt-4o-search-preview`.
+
+**Background**:
+- Current implementation uses string templates with manual text parsing (fragile)
+- No retry logic for transient failures
+- gpt-4o-search-preview does NOT support structured outputs (json_schema)
+- Must use text-based prompts + Pydantic validation hybrid approach
+
+#### Implementation Plan
+
+**1. Create `utils/models.py`**
+```python
+from pydantic import BaseModel, Field, field_validator
+from typing import Literal
+
+class ClassificationRequest(BaseModel):
+    """Input data for speaker classification."""
+    company_name: str
+    speaker_name: str
+    speaker_title: str
+
+class ClassificationResponse(BaseModel):
+    """Validated LLM classification response."""
+    category: Literal["Builder", "Owner", "Partner", "Competitor", "Other"]
+    company_size: Literal["Small", "Large", "Unknown"]
+    reasoning: str = Field(min_length=10, description="Explanation for classification")
+
+    @field_validator('reasoning')
+    @classmethod
+    def reasoning_not_empty(cls, v: str) -> str:
+        if not v or v.strip() == "":
+            raise ValueError("Reasoning cannot be empty")
+        return v.strip()
+```
+
+**Key Design:**
+- Use `Literal` types for enum validation
+- Field validators ensure quality responses
+- Simple models - validation only, no business logic
+
+**2. Update `requirements.txt`**
+Add dependencies:
+```txt
+pydantic>=2.0.0
+tenacity>=8.0.0
+```
+
+**3. Update `.env_sample`**
+Add DEBUG configuration:
+```bash
+# Debug Configuration
+DEBUG=false  # Set to true for detailed retry logging
+```
+
+**4. Update `utils/llm_processor.py`**
+
+**New Imports:**
+```python
+import logging
+from pydantic import ValidationError
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log
+)
+from utils.models import ClassificationRequest, ClassificationResponse
+```
+
+**Update `__init__` Method:**
+- Add `self.debug` flag from environment
+- Setup logger for tenacity retry logging
+
+**Update `classify_speaker` Method:**
+```python
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((Exception,)),
+    before_sleep=lambda retry_state: (
+        logging.getLogger(__name__).debug(
+            f"Retry attempt {retry_state.attempt_number} after error: {retry_state.outcome.exception()}"
+        ) if os.getenv("DEBUG", "false").lower() == "true" else None
+    ),
+    reraise=True
+)
+async def classify_speaker(self, speaker_name: str, speaker_title: str, company_name: str) -> Tuple[str, str, str]:
+    # Validate input with Pydantic
+    request = ClassificationRequest(...)
+
+    # Make LLM call (existing logic)
+    # Parse response (existing logic)
+
+    # Validate output with Pydantic
+    validated = self._parse_and_validate_classification(content)
+
+    return (validated.category, validated.reasoning, validated.company_size)
+```
+
+**Add New Method `_parse_and_validate_classification`:**
+- Parse text response (keep existing parsing logic)
+- Validate with Pydantic `ClassificationResponse`
+- Raises `ValidationError` on invalid data (triggers retry)
+
+#### Retry Strategy
+
+**Retry Behavior:**
+- ✅ Retry on: `RateLimitError`, `Timeout`, `APIConnectionError`, `ValidationError` (all exceptions for now)
+- ❌ Don't retry: None initially (can refine later)
+- **Max 3 attempts** (1 original + 2 retries)
+- **Exponential backoff**: 2-10 seconds between attempts
+- **DEBUG mode**: Logs each retry attempt with error details
+
+**Token Efficiency:**
+- Only retries on failures (not multiple sampling)
+- Max 3 attempts prevents excessive token usage
+- Exponential backoff respects rate limits
+
+#### Key Design Decisions
+
+1. **Hybrid Approach**: Text prompts + Pydantic validation (not json_schema)
+   - Reason: gpt-4o-search-preview has compatibility issues with structured outputs
+   - Maintains web search capability for company size lookup
+
+2. **Retry All Exceptions**: Catch-all retry initially
+   - Can be refined later to skip unrecoverable errors (auth failures, etc.)
+   - Simple and robust for production readiness
+
+3. **Backward Compatible**:
+   - No changes to `main.py` required
+   - Existing method signatures preserved
+   - Only internal validation/retry logic added
+
+4. **DEBUG Flag**:
+   - Production: No retry logging (clean output)
+   - Debug: Detailed logs for troubleshooting
+   - No token waste on excessive logging
+
+#### Implementation Order
+
+1. Create `utils/models.py` first (defines contracts)
+2. Update `requirements.txt` (install dependencies)
+3. Update `.env_sample` (add DEBUG flag)
+4. Update `utils/llm_processor.py`:
+   - Add imports
+   - Update `__init__` method
+   - Add `_parse_and_validate_classification` method
+   - Update `classify_speaker` with retry decorator
+
+#### Testing Checklist
+
+- [ ] Test with `DEBUG=true` to verify retry logging works
+- [ ] Test with malformed LLM responses (trigger validation errors)
+- [ ] Verify exponential backoff timing (2s, 4s, 8s)
+- [ ] Confirm existing functionality preserved (classification + email generation)
+- [ ] Validate no changes needed to `main.py`
+
+#### Success Criteria
+
+- Type-safe input/output validation with Pydantic
+- Intelligent retry logic handles transient failures
+- DEBUG flag provides visibility without token waste
+- Backward compatible with existing pipeline
+- Production-ready error handling
+
+**Expected Time**: 30-45 minutes for implementation and testing
 
 ---
 
@@ -276,10 +450,22 @@ dd_gtm_ai_eng_exercise/
 
 ## Next Steps
 
-Agent 2 (Builder) should begin implementation immediately, focusing on:
-1. LLM integration setup
-2. Company categorization logic
-3. Email generation pipeline
-4. Main orchestration script
+### ✅ Phase 1 Complete: Initial Implementation
+Agent 2 (Builder) has completed the initial implementation including:
+- ✅ LLM integration setup
+- ✅ Company categorization logic
+- ✅ Email generation pipeline
+- ✅ Main orchestration script
 
-The architecture is sound and the requirements are achievable within the 2-hour timeframe.
+### 🔄 Phase 2 In Progress: Production-Ready Improvements
+Agent 2 (Builder) should now implement production-ready improvements:
+1. Create Pydantic models for type-safe validation
+2. Add tenacity retry logic for robustness
+3. Implement DEBUG flag for visibility
+4. Maintain backward compatibility
+
+See **Agent 2 (Builder) - PRODUCTION-READY IMPROVEMENTS** section above for detailed implementation plan.
+
+**Expected Time**: 30-45 minutes
+
+The architecture is sound and all requirements have been successfully implemented.

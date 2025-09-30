@@ -3,7 +3,7 @@ Web scraper for Digital Construction Week speaker data.
 """
 import aiohttp
 from bs4 import BeautifulSoup
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 class ConferenceScraper:
     def __init__(self):
@@ -51,17 +51,11 @@ class ConferenceScraper:
 
         return speakers
 
-    def _parse_job_text(self, job_text: str) -> tuple[str, str]:
+    def _parse_job_text(self, job_text: str) -> Tuple[str, str]:
         """Parse job text to extract title and company."""
-        if ' at ' in job_text:
-            parts = job_text.split(' at ', 1)
-            return parts[0].strip(), parts[1].strip()
-        elif ' - ' in job_text:
-            parts = job_text.split(' - ', 1)
-            return parts[0].strip(), parts[1].strip()
-        elif ', ' in job_text:
-            parts = job_text.split(', ', 1)
-            return parts[0].strip(), parts[1].strip()
-        else:
-            # If no separator found, assume it's all title
-            return job_text, ''
+        for separator in [' at ', ' - ', ', ']:
+            if separator in job_text:
+                title, company = job_text.split(separator, 1)
+                return title.strip(), company.strip()
+        # If no separator found, assume it's all title
+        return job_text, ''

@@ -39,5 +39,14 @@ dump.rdb
 # Byte-compiled / optimized / DLL files
 __pycache__/
 
+# Test coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+.hypothesis/
+
 dd_gtm_ai_eng_exercise/out/*
 !dd_gtm_ai_eng_exercise/out/.gitkeep

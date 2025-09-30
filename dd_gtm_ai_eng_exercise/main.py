@@ -72,9 +72,9 @@ async def main():
     categories = {}
     emails_generated = 0
     for speaker in processed_speakers:
-        category = speaker.get('category', 'Unknown')
+        category = speaker.category.value
         categories[category] = categories.get(category, 0) + 1
-        if speaker.get('email_subject'):  # Email was generated
+        if speaker.email_subject:  # Email was generated
             emails_generated += 1
 
     print(f"\n📊 Classification Summary:")
@@ -92,11 +92,11 @@ async def main():
     print(f"\n📧 Sample Email Results:")
     print("-" * 40)
 
-    email_samples = [s for s in processed_speakers if s['email_subject']][:2]
+    email_samples = [s for s in processed_speakers if s.email_subject][:2]
     for i, speaker in enumerate(email_samples):
-        print(f"\n{i+1}. {speaker['name']} ({speaker['category']})")
-        print(f"   Subject: {speaker['email_subject']}")
-        print(f"   Body Preview: {speaker['email_body'][:100]}...")
+        print(f"\n{i+1}. {speaker.name} ({speaker.category.value})")
+        print(f"   Subject: {speaker.email_subject}")
+        print(f"   Body Preview: {speaker.email_body[:100]}...")
 
     print(f"\n🎉 Pipeline completed successfully!")
     print(f"📁 Output file: {email_list_file}")

@@ -8,14 +8,32 @@ Classify the following company and speaker role into one of five categories base
 
 CLASSIFICATION LOGIC:
 
-Step 1 - Company Classification:
-- COMPETITOR: Direct drone/construction tech competitors including but not limited to: Autodesk, Bentley, Trimble, PlanGrid, Procore, Pix4D, Skycatch, DroneSeed, Kespry, Measure, Site 1001, Propeller Aero, and similar companies that provide drone mapping, construction software, or competing technology solutions
-- PARTNER: Cloud platforms (AWS, Azure, Google Cloud), system integrators, non-competing technology companies that could potentially partner with DroneDeploy
-- Continue to Step 2 if not Competitor/Partner
+CRITICAL: You MUST follow these steps in order. Step 1 is ABSOLUTE and overrides all other considerations.
 
-Step 2 - Role Classification (if not Competitor/Partner):
-- BUILDER: Construction Manager, Project Manager, Engineer, Architect, Contractor, General Contractor, Specialty Contractor, Superintendent, Site Manager, BIM Manager, Construction Professional, Field Manager, Safety Manager
-- OWNER: Real Estate Developer, Property Developer, Facility Manager, Asset Manager, Owner's Representative, Development Manager, Property Owner, Infrastructure Owner
+Step 1 - Company Classification (CHECK THIS FIRST):
+- COMPETITOR: Companies that provide drone mapping, construction software, or competing technology solutions. This includes:
+  * ALWAYS COMPETITOR: Autodesk, Bentley, Bentley Systems, Trimble, PlanGrid, Procore, Procore Technologies, Pix4D, Skycatch, DroneSeed, Kespry, Measure, Site 1001, Propeller Aero
+  * Any company providing drone mapping software, construction management software, or BIM/digital construction platforms
+  * If the company name contains or is affiliated with these competitors, classify as COMPETITOR regardless of the person's role
+
+- PARTNER: ONLY if the company is clearly a non-competing technology company such as:
+  * Cloud infrastructure providers: AWS, Azure, Google Cloud, Microsoft
+  * System integrators or IT consultancies
+  * Hardware/sensor manufacturers (not software)
+  * IMPORTANT: If uncertain whether Partner or Competitor, classify as COMPETITOR
+
+- If NOT Competitor or Partner, continue to Step 2
+
+Step 2 - Role Classification (ONLY if Step 1 determined NOT Competitor/Partner):
+Evaluate the speaker's company type:
+- BUILDER: Construction companies, contractors, engineering firms, architecture firms - companies that build projects
+  * Examples: Laing O'Rourke, Skanska, Kier, Balfour Beatty, AECOM, Jacobs, Multiplex, Bouygues
+  * Job titles: Construction Manager, Project Manager, Engineer, Architect, Contractor, Superintendent, Site Manager, BIM Manager, Digital Construction roles
+
+- OWNER: Organizations that own/develop properties or infrastructure
+  * Examples: Real estate developers, property owners, facility management companies
+  * Job titles: Real Estate Developer, Facility Manager, Asset Manager, Owner's Representative, Development Manager, CIO (if at owner organization)
+
 - OTHER: Academic, government, consultant, unclear roles, or roles that don't fit Builder/Owner categories
 
 INPUT FORMAT:
@@ -25,10 +43,19 @@ Title: {speaker_title}
 
 OUTPUT FORMAT:
 Category: [Builder|Owner|Partner|Competitor|Other]
+Company Size: [Small|Large|Unknown]
 Reasoning: [Brief explanation of the classification decision]
+
+COMPANY SIZE CLASSIFICATION:
+Use web search to determine the company's employee count:
+- Large: 500 or more employees
+- Small: Less than 500 employees
+- Unknown: Cannot determine employee count
 
 IMPORTANT NOTES:
 - Only Builder and Owner categories will receive marketing emails
-- Be conservative with Partner/Competitor classifications - when in doubt, classify as Builder/Owner if the role fits
-- Focus primarily on the speaker's job title for Builder vs Owner distinction
-- Consider the company context but prioritize the individual's role
+- ALWAYS classify known competitors (Autodesk, Bentley, Trimble, Procore, etc.) as COMPETITOR, never as Partner
+- Step 1 (company classification) takes absolute precedence over Step 2 (role classification)
+- If a company is a COMPETITOR, it doesn't matter what the individual's role is - they are still COMPETITOR
+- For Step 2: Focus on the company type (construction firm, owner, etc.) not just the individual's job title
+- When classifying construction companies (Laing O'Rourke, Skanska, Kier, etc.), classify as BUILDER

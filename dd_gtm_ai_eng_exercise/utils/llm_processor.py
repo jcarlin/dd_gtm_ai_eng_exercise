@@ -6,14 +6,29 @@ import os
 import json
 import random
 import asyncio
-from typing import Dict, List, Optional, Tuple
+import logging
+from collections import Counter
+from typing import List, Tuple
 from pathlib import Path
 
-import litellm
-from dotenv import load_dotenv
+from openai import AsyncOpenAI, RateLimitError
+from pydantic import ValidationError
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
-# Load environment variables
-load_dotenv()
+from utils.models import (
+    Category,
+    CompanySize,
+    Speaker,
+    ClassificationResult,
+    EmailContent,
+    ProcessedSpeaker
+)
+
 
 class LLMProcessor:
     def __init__(self):
@@ -22,9 +37,18 @@ class LLMProcessor:
         self.email_generation_model = os.getenv("EMAIL_GENERATION_MODEL")
         self.max_concurrent = int(os.getenv("MAX_CONCURRENT_REQUESTS", "5"))
         self.request_delay = float(os.getenv("REQUEST_DELAY_SECONDS", "0.5"))
+        self.debug = os.getenv("DEBUG", "false").lower() == "true"
 
         if not self.classification_model or not self.email_generation_model:
             raise ValueError("CLASSIFICATION_MODEL and EMAIL_GENERATION_MODEL must be set in .env")
+
+        # Initialize OpenAI client
+        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        # Setup logger for tenacity retry logging
+        self.logger = logging.getLogger(__name__)
+        if self.debug:
+            logging.basicConfig(level=logging.DEBUG)
 
         # Load templates
         self._load_templates()
@@ -46,77 +70,147 @@ class LLMProcessor:
         with open(email_path, 'r', encoding='utf-8') as f:
             self.email_templates = json.load(f)
 
-    async def classify_speaker(self, speaker_name: str, speaker_title: str, company_name: str) -> Tuple[str, str]:
+        # Known competitors list for pre-validation
+        self.known_competitors = [
+            'autodesk', 'bentley', 'trimble', 'plangrid', 'procore',
+            'pix4d', 'skycatch', 'droneseed', 'kespry', 'measure',
+            'site 1001', 'propeller aero', 'propeller'
+        ]
+
+    def _is_known_competitor(self, company_name: str) -> bool:
+        """Check if company is a known competitor before LLM classification."""
+        company_lower = company_name.lower()
+        for competitor in self.known_competitors:
+            if competitor in company_lower:
+                return True
+        return False
+
+    def _extract_field_value(self, line: str, prefix: str) -> str:
+        """Extract value from 'Prefix: value' or 'Prefix: [value|other]' format."""
+        text = line.removeprefix(f"{prefix}:").strip()
+
+        if text.startswith('[') and ']' in text:
+            return text[1:text.index(']')].split('|')[0]
+        return text
+
+    async def classify_speaker(self, speaker: Speaker) -> ClassificationResult:
         """
-        Classify a speaker into Builder/Owner/Partner/Competitor/Other category.
+        Classify a speaker into Builder/Owner/Partner/Competitor/Other category
+        and determine company size using web search.
+
+        Args:
+            speaker: Speaker object with name, title, and company
 
         Returns:
-            Tuple of (category, reasoning)
+            ClassificationResult with category, reasoning, and company_size
         """
+        # Pre-validation: Check if company is a known competitor
+        if self._is_known_competitor(speaker.company):
+            if self.debug:
+                print(f"🎯 {speaker.company} identified as known competitor (pre-validation)")
+            return ClassificationResult(
+                category=Category.COMPETITOR,
+                company_size=CompanySize.UNKNOWN,  # Size doesn't matter for competitors
+                reasoning=f"Known competitor in drone/construction software space"
+            )
+
+        try:
+            return await self._classify_speaker_with_retry(speaker)
+        except RateLimitError as e:
+            # Always exit on rate limit errors regardless of DEBUG mode
+            print(f"❌ Rate limit exceeded: {str(e)}")
+            raise
+        except Exception as e:
+            if self.debug:
+                # DEBUG=true: Fail fast - exit on any error
+                print(f"❌ [DEBUG MODE] Classification failed for {speaker.name}: {str(e)}")
+                raise
+            else:
+                # DEBUG=false: Continue processing - return default classification
+                print(f"⚠️ Classification failed for {speaker.name}, using default: {str(e)}")
+                return ClassificationResult(
+                    category=Category.OTHER,
+                    company_size=CompanySize.UNKNOWN,
+                    reasoning=f"Classification failed: {str(e)}"
+                )
+
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=2, min=4, max=60),  # 4s, 8s, 16s, 32s, 60s
+        retry=retry_if_exception_type((Exception,)),  # Retry all exceptions including rate limits
+        before_sleep=lambda retry_state: (
+            print(f"⏳ Retry {retry_state.attempt_number} after {retry_state.outcome.exception().__class__.__name__}: waiting {retry_state.next_action.sleep} seconds...")
+            if retry_state.outcome.failed else None
+        ),
+        reraise=True
+    )
+    async def _classify_speaker_with_retry(self, speaker: Speaker) -> ClassificationResult:
+        """Internal method with retry logic for speaker classification."""
         async with self._semaphore:
             # Add delay for rate limiting
             await asyncio.sleep(self.request_delay)
 
             # Format the prompt
             prompt = self.prompt_template.format(
-                company_name=company_name,
-                speaker_name=speaker_name,
-                speaker_title=speaker_title
+                company_name=speaker.company,
+                speaker_name=speaker.name,
+                speaker_title=speaker.title
             )
 
-            try:
-                response = await litellm.acompletion(
-                    model=self.classification_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.1  # Low temperature for consistent classification
-                )
+            response = await self.client.chat.completions.create(
+                model=self.classification_model,
+                messages=[{"role": "user", "content": prompt}],
+                # temperature not supported by gpt-4o-search-preview
+                # web_search_options={}  # Enable web search
+            )
 
-                content = response.choices[0].message.content.strip()
+            content = response.choices[0].message.content.strip()
 
-                # Parse the response
-                category, reasoning = self._parse_classification_response(content)
-                return category, reasoning
+            # Validate output with Pydantic
+            return self._parse_and_validate_classification(content)
 
-            except Exception as e:
-                print(f"Error classifying {speaker_name}: {str(e)}")
-                return "Other", f"Classification failed: {str(e)}"
-
-    def _parse_classification_response(self, content: str) -> Tuple[str, str]:
+    def _parse_classification_response(self, content: str) -> Tuple[str, str, str]:
         """Parse LLM classification response."""
-        lines = content.split('\n')
         category = "Other"
         reasoning = "Unable to parse response"
+        company_size = "Unknown"
 
-        for line in lines:
+        for line in content.split('\n'):
             line = line.strip()
             if line.startswith("Category:"):
-                category_text = line.replace("Category:", "").strip()
-                # Extract category name, handle brackets
-                if '[' in category_text and ']' in category_text:
-                    category = category_text.split('[')[1].split(']')[0].split('|')[0]
-                else:
-                    category = category_text
+                category = self._extract_field_value(line, "Category")
+            elif line.startswith("Company Size:"):
+                company_size = self._extract_field_value(line, "Company Size")
             elif line.startswith("Reasoning:"):
-                reasoning = line.replace("Reasoning:", "").strip()
+                reasoning = self._extract_field_value(line, "Reasoning")
 
-        # Validate category
-        valid_categories = ["Builder", "Owner", "Partner", "Competitor", "Other"]
-        if category not in valid_categories:
-            category = "Other"
+        return category, reasoning, company_size
 
-        return category, reasoning
+    def _parse_and_validate_classification(self, content: str) -> ClassificationResult:
+        """Parse and validate LLM classification response using Pydantic."""
+        category, reasoning, company_size = self._parse_classification_response(content)
 
-    async def generate_email(self, speaker_name: str, speaker_title: str,
-                           company_name: str, category: str) -> Tuple[str, str]:
+        try:
+            return ClassificationResult(
+                category=category,
+                company_size=company_size,
+                reasoning=reasoning
+            )
+        except ValidationError:
+            if self.debug:
+                self.logger.debug(f"Validation failed: {content[:200]}...")
+            raise
+
+    async def generate_email(self, speaker: Speaker, category: Category, company_size: CompanySize) -> EmailContent:
         """
-        Generate email subject and body for Builder/Owner categories.
+        Generate email subject and body for Builder/Owner categories with Large company size.
 
         Returns:
-            Tuple of (subject, body) or ("", "") for non-target categories
+            EmailContent with subject and body, or empty strings for non-target categories
         """
-        # Only generate emails for Builder and Owner categories
-        if category not in ["Builder", "Owner"]:
-            return "", ""
+        # Only generate emails for Builder and Owner categories with Large company size
+        if category not in [Category.BUILDER, Category.OWNER] or company_size != CompanySize.LARGE:
+            return EmailContent(subject="", body="")
 
         async with self._semaphore:
             # Add delay for rate limiting
@@ -124,85 +218,92 @@ class LLMProcessor:
 
             try:
                 # Get templates for the category
-                templates = self.email_templates[category]
+                templates = self.email_templates[category.value]
 
-                # Select random subject template
+                # Select random subject template and generate email
                 subject_template = random.choice(templates["subject_templates"])
                 subject = subject_template.format(
-                    speaker_name=speaker_name,
-                    company_name=company_name,
-                    speaker_title=speaker_title
+                    speaker_name=speaker.name,
+                    company_name=speaker.company,
+                    speaker_title=speaker.title
                 )
 
-                # Generate body from template
                 body = templates["body_template"].format(
-                    speaker_name=speaker_name,
-                    company_name=company_name,
-                    speaker_title=speaker_title
+                    speaker_name=speaker.name,
+                    company_name=speaker.company,
+                    speaker_title=speaker.title
                 )
 
-                return subject, body
+                return EmailContent(subject=subject, body=body)
 
             except Exception as e:
-                print(f"Error generating email for {speaker_name}: {str(e)}")
-                return "", ""
+                print(f"Error generating email for {speaker.name}: {str(e)}")
+                return EmailContent(subject="", body="")
 
-    async def process_speakers_batch(self, speakers: List[Dict]) -> List[Dict]:
+    async def process_speakers_batch(self, speakers: List[Speaker]) -> List[ProcessedSpeaker]:
         """
         Process a batch of speakers for classification and email generation.
+        Uses chunked processing with semaphore for rate limiting.
 
         Args:
-            speakers: List of dicts with keys: name, title, company
+            speakers: List of Speaker objects
 
         Returns:
-            List of dicts with additional keys: category, reasoning, email_subject, email_body
+            List of ProcessedSpeaker objects with classification and email data
         """
-        # Create tasks for classification
-        classification_tasks = []
-        for speaker in speakers:
-            task = self.classify_speaker(
-                speaker_name=speaker["name"],
-                speaker_title=speaker["title"],
-                company_name=speaker["company"]
-            )
-            classification_tasks.append(task)
+        # Execute classifications with semaphore-based rate limiting
+        print(f"Classifying {len(speakers)} speakers (category + company size)...")
+        print(f"⚙️ Settings: {self.max_concurrent} concurrent, {self.request_delay}s delay between requests")
 
-        # Execute classifications concurrently
-        print(f"Classifying {len(speakers)} speakers...")
-        classification_results = await asyncio.gather(*classification_tasks)
+        classification_tasks = [self.classify_speaker(speaker) for speaker in speakers]
+        classification_results = await asyncio.gather(*classification_tasks, return_exceptions=True)
 
-        # Add classification results to speaker data
-        for speaker, (category, reasoning) in zip(speakers, classification_results):
-            speaker["category"] = category
-            speaker["reasoning"] = reasoning
+        # Handle any exceptions in results
+        valid_results = []
+        for i, result in enumerate(classification_results):
+            if isinstance(result, Exception):
+                print(f"⚠️ Failed to classify {speakers[i].name}: {result}")
+                # Use default classification for failures
+                valid_results.append(ClassificationResult(
+                    category=Category.OTHER,
+                    company_size=CompanySize.UNKNOWN,
+                    reasoning=f"Classification error: {str(result)}"
+                ))
+            else:
+                valid_results.append(result)
 
-        # Generate emails for Builder/Owner categories
-        email_tasks = []
-        for speaker in speakers:
-            task = self.generate_email(
-                speaker_name=speaker["name"],
-                speaker_title=speaker["title"],
-                company_name=speaker["company"],
-                category=speaker["category"]
-            )
-            email_tasks.append(task)
+        classification_results = valid_results
 
-        print(f"Generating emails for qualifying speakers...")
+        # Generate emails concurrently
+        print(f"Generating emails for qualifying speakers (Builder/Owner + Large companies)...")
+        email_tasks = [
+            self.generate_email(speaker, result.category, result.company_size)
+            for speaker, result in zip(speakers, classification_results)
+        ]
         email_results = await asyncio.gather(*email_tasks)
 
-        # Add email results to speaker data
-        for speaker, (subject, body) in zip(speakers, email_results):
-            speaker["email_subject"] = subject
-            speaker["email_body"] = body
+        # Build ProcessedSpeaker objects
+        processed_speakers = [
+            ProcessedSpeaker(
+                name=speaker.name,
+                title=speaker.title,
+                company=speaker.company,
+                category=result.category,
+                company_size=result.company_size,
+                reasoning=result.reasoning,
+                email_subject=email.subject,
+                email_body=email.body
+            )
+            for speaker, result, email in zip(speakers, classification_results, email_results)
+        ]
 
         # Log category counts
-        from collections import Counter
-        counts = Counter(speaker["category"] for speaker in speakers)
+        counts = Counter(s.category.value for s in processed_speakers)
         print(f"Category counts: {dict(counts)}")
 
-        return speakers
+        return processed_speakers
 
-    async def process_speakers_from_file(self, raw_speakers_file: str) -> List[Dict]:
+    async def process_speakers_from_file(self, raw_speakers_file: str) -> List[ProcessedSpeaker]:
         """
         Process speakers from raw_speakers.json file.
 
@@ -210,12 +311,13 @@ class LLMProcessor:
             raw_speakers_file: Path to raw_speakers.json file
 
         Returns:
-            List of processed speakers with classification and email data
+            List of ProcessedSpeaker objects with classification and email data
         """
-        # Load speakers from JSON file
+        # Load speakers from JSON file and convert to Speaker objects
         with open(raw_speakers_file, 'r', encoding='utf-8') as f:
-            speakers = json.load(f)
+            speaker_dicts = json.load(f)
 
+        speakers = [Speaker(**s) for s in speaker_dicts]
         print(f"📖 Loaded {len(speakers)} speakers from {raw_speakers_file}")
 
         # Process the speakers using existing batch method
@@ -224,7 +326,21 @@ class LLMProcessor:
         # Save processed data to new file
         output_file = raw_speakers_file.replace('raw_speakers.json', 'speakers_with_categories.json')
         with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(processed_speakers, f, indent=2, ensure_ascii=False)
+            # Convert ProcessedSpeaker objects to dicts for JSON serialization
+            output_data = [
+                {
+                    "name": s.name,
+                    "title": s.title,
+                    "company": s.company,
+                    "category": s.category.value,
+                    "company_size": s.company_size.value,
+                    "reasoning": s.reasoning,
+                    "email_subject": s.email_subject,
+                    "email_body": s.email_body
+                }
+                for s in processed_speakers
+            ]
+            json.dump(output_data, f, indent=2, ensure_ascii=False)
         print(f"💾 Saved processed speakers to {output_file}")
 
         return processed_speakers
